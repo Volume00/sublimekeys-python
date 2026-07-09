@@ -47,9 +47,14 @@ class SublimeKeysClient:
         cache_dir: Path | None = None,
         public_key_b64u: str | None = None,
         timeout: float = 10.0,
+        max_retries: int = 2,
+        backoff_base: float = 0.5,
     ):
         self.product_id = product_id
-        self._http = HttpClient(base_url=base_url, timeout=timeout)
+        self._http = HttpClient(
+            base_url=base_url, timeout=timeout,
+            max_retries=max_retries, backoff_base=backoff_base,
+        )
         self._cache_base = Path(cache_dir) if cache_dir else None
         self._public_key_bytes = _b64u_decode(public_key_b64u or _pubkey.PUBLIC_KEY_B64U)
 

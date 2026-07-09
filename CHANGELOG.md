@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0 — 2026-07-09
+
+- New `sublimekeys` CLI (installed automatically): `activate`, `verify`, `deactivate`, `trial-start`, `trial-status`, `machine-id`, with `--json` output and shell-friendly exit codes
+- HTTP requests now retry transient failures (connection errors, 5xx) with exponential backoff, tunable via `max_retries`/`backoff_base` on `SublimeKeysClient`
+- New `ServerError` exception (subclass of `NetworkError`) raised when a 5xx response survives all retries
+
 ## 0.1.0 — 2026-07-09
 
 Initial release.

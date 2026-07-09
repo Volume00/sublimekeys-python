@@ -79,9 +79,32 @@ for instant, network-independent checks the rest of the time, not a bug.
 | `get_machine_id()` | Stable per-install identifier (auto-generated, persisted locally). |
 
 All methods return a small dataclass (`LicenseResult` or `TrialResult`) —
-never raise for a normal "not valid" outcome. Network failures are caught
-internally too; `verify()` falls back to the offline cache or a
+never raise for a normal "not valid" outcome. Network failures are retried
+automatically with exponential backoff (2 retries by default, tunable via
+`SublimeKeysClient(..., max_retries=, backoff_base=)`) before giving up;
+`verify()` then falls back to the offline cache or a
 `valid=False, source="offline_cache_miss"` result rather than raising.
+A 5xx response that survives all retries raises `ServerError` (a
+`NetworkError` subclass) instead of the usual dataclass return — the one
+case worth distinguishing from an ordinary "not valid" result.
+
+## Command-line interface
+
+Installing the package also installs a `sublimekeys` command — handy for
+testing an integration from a terminal or in a shell script, without
+writing a throwaway Python file:
+
+```bash
+sublimekeys activate --product my-app YOUR-LICENSE-KEY
+sublimekeys verify --product my-app YOUR-LICENSE-KEY
+sublimekeys verify --product my-app --json YOUR-LICENSE-KEY   # machine-readable
+sublimekeys trial-status --product my-app
+sublimekeys machine-id --product my-app
+```
+
+Exit code is `0` for a valid/active result, `1` for invalid, `2` for a
+usage error. Run `sublimekeys --help` or `sublimekeys <command> --help`
+for the full flag list (`--base-url`, `--cache-dir`, `--machine-id`, `--json`).
 
 ## Packaging with PyInstaller
 
