@@ -6,8 +6,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 import sublimekeys.http as http_module
+import sublimekeys.storage as storage
 from sublimekeys.client import SublimeKeysClient
-from tests.conftest import make_lease
 
 
 def _b64u(data: bytes) -> str:
@@ -62,9 +62,8 @@ def client(tmp_path, keypair):
     return SublimeKeysClient("test-product", cache_dir=tmp_path, public_key_b64u=_b64u(pub))
 
 
-def test_activate_writes_cache_on_success(client, fake_transport, keypair, tmp_path):
-    priv, _ = keypair
-    lease = make_lease(priv, license_key="LIC-1", machine_id=client.get_machine_id())
+def test_activate_writes_cache_on_success(client, fake_transport, lease_factory, tmp_path):
+    lease = lease_factory(license_key="LIC-1", machine_id=client.get_machine_id())
     fake_transport.queue_response({
         "valid": True, "message": "Activated", "email": "buyer@example.com",
         "expires_at": None, "lease": lease,
@@ -77,10 +76,9 @@ def test_activate_writes_cache_on_success(client, fake_transport, keypair, tmp_p
     assert (tmp_path / "lease.json").exists()
 
 
-def test_verify_uses_cache_with_zero_network_calls_when_valid(client, fake_transport, keypair):
-    priv, _ = keypair
+def test_verify_uses_cache_with_zero_network_calls_when_valid(client, fake_transport, lease_factory):
     machine_id = client.get_machine_id()
-    lease = make_lease(priv, license_key="LIC-1", machine_id=machine_id)
+    lease = lease_factory(license_key="LIC-1", machine_id=machine_id)
     fake_transport.queue_response({
         "valid": True, "message": "Activated", "email": "buyer@example.com",
         "expires_at": None, "lease": lease,
@@ -95,19 +93,18 @@ def test_verify_uses_cache_with_zero_network_calls_when_valid(client, fake_trans
     assert len(fake_transport.calls) == calls_before  # no new network calls
 
 
-def test_verify_falls_back_online_when_trust_window_lapsed(client, fake_transport, keypair):
-    priv, _ = keypair
+def test_verify_falls_back_online_when_trust_window_lapsed(client, fake_transport, lease_factory):
     machine_id = client.get_machine_id()
     past = datetime.now(timezone.utc) - timedelta(days=10)
-    lease = make_lease(priv, license_key="LIC-1", machine_id=machine_id,
-                        issued_at=past, lease_expires_at=past + timedelta(days=7))
+    lease = lease_factory(license_key="LIC-1", machine_id=machine_id,
+                           issued_at=past, lease_expires_at=past + timedelta(days=7))
     fake_transport.queue_response({
         "valid": True, "message": "Activated", "email": "buyer@example.com",
         "expires_at": None, "lease": lease,
     })
     client.activate("LIC-1")
 
-    fresh_lease = make_lease(priv, license_key="LIC-1", machine_id=machine_id)
+    fresh_lease = lease_factory(license_key="LIC-1", machine_id=machine_id)
     fake_transport.queue_response({
         "valid": True, "message": "Valid", "email": "buyer@example.com",
         "expires_at": None, "lease": fresh_lease,
@@ -120,13 +117,12 @@ def test_verify_falls_back_online_when_trust_window_lapsed(client, fake_transpor
     assert len(fake_transport.calls) == calls_before + 1  # forced an online call
 
 
-def test_revocation_clears_cache_and_stays_invalid_offline(client, fake_transport, keypair):
+def test_revocation_clears_cache_and_stays_invalid_offline(client, fake_transport, lease_factory):
     """The correctness-critical scenario: an online check that comes back
     invalid must clear the cache, so a subsequent fully-offline check
     doesn't resurrect a stale 'valid' from before the revocation."""
-    priv, _ = keypair
     machine_id = client.get_machine_id()
-    lease = make_lease(priv, license_key="LIC-1", machine_id=machine_id)
+    lease = lease_factory(license_key="LIC-1", machine_id=machine_id)
     fake_transport.queue_response({
         "valid": True, "message": "Activated", "email": "buyer@example.com",
         "expires_at": None, "lease": lease,
@@ -135,9 +131,8 @@ def test_revocation_clears_cache_and_stays_invalid_offline(client, fake_transpor
 
     # Force an online check that simulates server-side revocation.
     past = datetime.now(timezone.utc) - timedelta(days=10)
-    expired_lease = make_lease(priv, license_key="LIC-1", machine_id=machine_id,
-                                issued_at=past, lease_expires_at=past + timedelta(days=7))
-    import sublimekeys.storage as storage
+    expired_lease = lease_factory(license_key="LIC-1", machine_id=machine_id,
+                                   issued_at=past, lease_expires_at=past + timedelta(days=7))
     storage.save_lease("test-product", "LIC-1", expired_lease, base=client._cache_base)
     fake_transport.queue_response({
         "valid": False, "message": "Revoked", "email": None, "expires_at": None, "lease": None,
@@ -153,10 +148,9 @@ def test_revocation_clears_cache_and_stays_invalid_offline(client, fake_transpor
     assert result2.source == "offline_cache_miss"
 
 
-def test_deactivate_clears_cache(client, fake_transport, keypair):
-    priv, _ = keypair
+def test_deactivate_clears_cache(client, fake_transport, lease_factory):
     machine_id = client.get_machine_id()
-    lease = make_lease(priv, license_key="LIC-1", machine_id=machine_id)
+    lease = lease_factory(license_key="LIC-1", machine_id=machine_id)
     fake_transport.queue_response({
         "valid": True, "message": "Activated", "email": "buyer@example.com",
         "expires_at": None, "lease": lease,
