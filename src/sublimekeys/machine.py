@@ -9,6 +9,8 @@ file — that's a known, accepted tradeoff (a soft deterrent, not DRM),
 not an oversight.
 """
 
+from __future__ import annotations
+
 import uuid
 from pathlib import Path
 

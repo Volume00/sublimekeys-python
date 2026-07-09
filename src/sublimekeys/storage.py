@@ -2,6 +2,8 @@
 atomically (temp file + os.replace) so a crash mid-write never leaves a
 half-written file behind."""
 
+from __future__ import annotations
+
 import json
 import os
 import tempfile

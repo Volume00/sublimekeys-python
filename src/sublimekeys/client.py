@@ -8,6 +8,8 @@ call only happens again once the cache is missing, invalid, or its trust
 window has lapsed.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path

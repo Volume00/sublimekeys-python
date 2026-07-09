@@ -5,6 +5,8 @@ signed with Ed25519 by the SublimeKeys license server. Verifying it locally
 requires no network call, which is the entire point of this module.
 """
 
+from __future__ import annotations
+
 import base64
 import json
 from datetime import datetime, timezone

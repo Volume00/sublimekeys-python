@@ -6,6 +6,8 @@ returns HTTP 200 with valid:false. Callers of this module see one shape
 either way.
 """
 
+from __future__ import annotations
+
 import json
 import urllib.error
 import urllib.request
