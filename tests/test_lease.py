@@ -1,9 +1,29 @@
+import base64
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from sublimekeys.exceptions import LeaseError
 from sublimekeys.lease import verify_lease
+
+
+def _b64u(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def _b64u_decode(s: str) -> bytes:
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def _flip_first_byte(b64_segment: str) -> str:
+    """Flips a bit in the first DECODED byte, then re-encodes. Manipulating
+    raw bytes (not the base64 characters) sidesteps a real edge case:
+    base64's last character in a partial group can have padding bits that
+    don't affect the decoded value, making a naive last-character flip an
+    unreliable way to guarantee a changed payload/signature."""
+    raw = bytearray(_b64u_decode(b64_segment))
+    raw[0] ^= 0xFF
+    return _b64u(bytes(raw))
 
 
 def test_accepts_a_fresh_valid_token(keypair, lease_factory):
@@ -21,7 +41,7 @@ def test_rejects_tampered_payload(keypair, lease_factory):
     _, pub = keypair
     token = lease_factory()
     payload_b64, sig_b64 = token.split(".")
-    tampered = payload_b64[:-1] + ("A" if payload_b64[-1] != "A" else "B") + "." + sig_b64
+    tampered = _flip_first_byte(payload_b64) + "." + sig_b64
     with pytest.raises(LeaseError):
         verify_lease(tampered, pub, expected_license_key="TEST-KEY",
                       expected_machine_id="test-machine", expected_product_id="test-product")
@@ -31,7 +51,7 @@ def test_rejects_tampered_signature(keypair, lease_factory):
     _, pub = keypair
     token = lease_factory()
     payload_b64, sig_b64 = token.split(".")
-    tampered = payload_b64 + "." + (sig_b64[:-1] + ("A" if sig_b64[-1] != "A" else "B"))
+    tampered = payload_b64 + "." + _flip_first_byte(sig_b64)
     with pytest.raises(LeaseError):
         verify_lease(tampered, pub, expected_license_key="TEST-KEY",
                       expected_machine_id="test-machine", expected_product_id="test-product")
