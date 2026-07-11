@@ -163,3 +163,70 @@ def test_deactivate_clears_cache(client, fake_transport, lease_factory):
     client.deactivate("LIC-1")
 
     assert not (client._cache_base / "lease.json").exists()
+
+
+def test_activate_network_error_is_distinguishable_from_rejection(client, fake_transport):
+    """A network failure on activate() must not be labeled source="online" —
+    that reads as "the server was reached and said no", which it wasn't."""
+    fake_transport.go_offline()
+
+    result = client.activate("LIC-1")
+
+    assert result.valid is False
+    assert result.source == "network_error"
+
+
+def test_deactivate_network_error_is_distinguishable_from_rejection(client, fake_transport):
+    fake_transport.go_offline()
+
+    result = client.deactivate("LIC-1")
+
+    assert result.valid is False
+    assert result.source == "network_error"
+
+
+def test_trial_start_network_error_is_distinguishable_from_no_trial(client, fake_transport):
+    fake_transport.go_offline()
+
+    result = client.start_trial()
+
+    assert result.status == "network_error"
+
+
+def test_trial_status_network_error_is_distinguishable_from_no_trial(client, fake_transport):
+    fake_transport.go_offline()
+
+    result = client.trial_status()
+
+    assert result.status == "network_error"
+
+
+def test_trial_status_falls_back_to_cache_when_offline(client, fake_transport):
+    fake_transport.queue_response({
+        "status": "active", "days_left": 5, "expires_at": None, "message": "Trial active",
+    })
+    online_result = client.trial_status()
+    assert online_result.source == "online"
+
+    fake_transport.go_offline()
+    result = client.trial_status()
+
+    assert result.status == "active"
+    assert result.days_left == 5
+    assert result.source == "offline_cache"
+
+
+def test_trial_cache_is_never_locally_recomputed(client, fake_transport):
+    """The cached snapshot must be replayed verbatim, not decremented client-
+    side — otherwise trial state would trust the local clock again, exactly
+    the class of manipulation server-authoritative trials are meant to close."""
+    fake_transport.queue_response({
+        "status": "active", "days_left": 5, "expires_at": None, "message": "Trial active",
+    })
+    client.trial_status()
+
+    fake_transport.go_offline()
+    first = client.trial_status()
+    second = client.trial_status()
+
+    assert first.days_left == second.days_left == 5

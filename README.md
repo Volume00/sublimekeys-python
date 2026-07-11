@@ -53,6 +53,16 @@ if result.status == "active":
 result = client.trial_status()      # read-only check, never starts one
 ```
 
+Trial state lives server-side, keyed to `machine_id` — the server's clock
+decides `days_left`, never the client's, so rolling back a machine's system
+clock doesn't extend a trial. `trial_status()` still works offline: if the
+network call fails, it replays the last server-confirmed snapshot
+(`source="offline_cache"`) instead of just failing — but that snapshot is
+never locally recomputed or decremented, so it can go stale (frozen at its
+last known value) rather than silently trusting the local clock. Falls back
+to `status="network_error"` only if there's no cached snapshot yet either
+(e.g. the very first check happens offline).
+
 ## How offline verification works
 
 When `activate()` or `verify()` succeeds, the server returns a lease — a
@@ -87,6 +97,17 @@ automatically with exponential backoff (2 retries by default, tunable via
 A 5xx response that survives all retries raises `ServerError` (a
 `NetworkError` subclass) instead of the usual dataclass return — the one
 case worth distinguishing from an ordinary "not valid" result.
+
+**Don't treat every `valid=False` as "bad license".** A network failure on
+`activate()` or `deactivate()` (offline on first run, DNS hiccup, etc.)
+still returns a normal dataclass rather than raising — check
+`source == "network_error"` to show "no connection, try again" instead of
+"invalid license". `verify()` and the trial methods don't need this check
+on their own: they already try their local cache first, so a network
+failure there only surfaces as `source == "offline_cache_miss"` (`verify()`)
+or `status == "network_error"` with no `source == "offline_cache"` fallback
+available (trials, first-ever offline check only) once there's truly
+nothing usable, cached or online.
 
 ## Command-line interface
 

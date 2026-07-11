@@ -27,15 +27,16 @@ class LicenseResult:
     message: str
     email: str | None = None
     expires_at: str | None = None
-    source: str = "online"  # "online" | "offline_cache" | "offline_cache_miss"
+    source: str = "online"  # "online" | "offline_cache" | "offline_cache_miss" | "network_error"
 
 
 @dataclass
 class TrialResult:
-    status: str  # "active" | "expired" | "none"
+    status: str  # "active" | "expired" | "none" | "network_error"
     days_left: int = 0
     expires_at: str | None = None
     message: str = ""
+    source: str = "online"  # "online" | "offline_cache" | "network_error"
 
 
 class SublimeKeysClient:
@@ -76,7 +77,7 @@ class SublimeKeysClient:
                 "product_id": self.product_id,
             })
         except NetworkError as e:
-            return LicenseResult(valid=False, message=f"Network error: {e}", source="online")
+            return LicenseResult(valid=False, message=f"Network error: {e}", source="network_error")
 
         result = LicenseResult(
             valid=data["valid"], message=data["message"],
@@ -158,7 +159,7 @@ class SublimeKeysClient:
                 "product_id": self.product_id,
             })
         except NetworkError as e:
-            return LicenseResult(valid=False, message=f"Network error: {e}", source="online")
+            return LicenseResult(valid=False, message=f"Network error: {e}", source="network_error")
 
         storage.clear_lease(self.product_id, base=self._cache_base)
         return LicenseResult(valid=data["valid"], message=data["message"], source="online")
@@ -166,28 +167,40 @@ class SublimeKeysClient:
     def start_trial(self, machine_id: str | None = None) -> TrialResult:
         """Get-or-create a trial for this machine. Idempotent server-side —
         reinstalling never resets the clock."""
-        machine_id = machine_id or self.get_machine_id()
-        try:
-            data = self._http.post_json("/trial/start", {
-                "machine_id": machine_id, "product_id": self.product_id,
-            })
-        except NetworkError as e:
-            return TrialResult(status="none", message=f"Network error: {e}")
-        return TrialResult(
-            status=data["status"], days_left=data.get("days_left", 0),
-            expires_at=data.get("expires_at"), message=data.get("message", ""),
-        )
+        return self._trial_call("/trial/start", machine_id)
 
     def trial_status(self, machine_id: str | None = None) -> TrialResult:
-        """Read-only trial check — never starts one."""
+        """Read-only trial check — never starts one. Offline-tolerant: if a
+        network call fails, falls back to the last server-confirmed trial
+        snapshot (source="offline_cache") instead of just failing — the
+        snapshot is never locally recomputed, so an offline user can't
+        extend a trial by manipulating their system clock."""
+        return self._trial_call("/trial/status", machine_id)
+
+    def _trial_call(self, path: str, machine_id: str | None) -> TrialResult:
         machine_id = machine_id or self.get_machine_id()
         try:
-            data = self._http.post_json("/trial/status", {
+            data = self._http.post_json(path, {
                 "machine_id": machine_id, "product_id": self.product_id,
             })
         except NetworkError as e:
-            return TrialResult(status="none", message=f"Network error: {e}")
-        return TrialResult(
+            cached = storage.load_trial(self.product_id, base=self._cache_base)
+            if cached:
+                return TrialResult(
+                    status=cached["status"], days_left=cached.get("days_left", 0),
+                    expires_at=cached.get("expires_at"), message=cached.get("message", ""),
+                    source="offline_cache",
+                )
+            return TrialResult(status="network_error", message=f"Network error: {e}",
+                                source="network_error")
+
+        result = TrialResult(
             status=data["status"], days_left=data.get("days_left", 0),
             expires_at=data.get("expires_at"), message=data.get("message", ""),
+            source="online",
         )
+        storage.save_trial(self.product_id, {
+            "status": result.status, "days_left": result.days_left,
+            "expires_at": result.expires_at, "message": result.message,
+        }, base=self._cache_base)
+        return result
