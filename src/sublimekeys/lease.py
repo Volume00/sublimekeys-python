@@ -21,6 +21,19 @@ def _b64u_decode(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
+def _parse_iso_utc(value: str, field: str) -> datetime:
+    """Parse an ISO 8601 timestamp from a lease; a value with no timezone is
+    read as UTC. A date-only or naive expiry such as "2027-11-13" used to make
+    the comparison with the timezone-aware "now" raise TypeError and crash the
+    host app's offline check. Anything unparseable fails closed with LeaseError
+    (verify() then simply asks the server)."""
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError) as e:
+        raise LeaseError(f"malformed {field} in lease: {e}")
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
 def verify_lease(
     token: str,
     public_key_bytes: bytes,
@@ -65,11 +78,11 @@ def verify_lease(
     now = now or datetime.now(timezone.utc)
 
     lease_expires_at = payload.get("lease_expires_at")
-    if not lease_expires_at or now >= datetime.fromisoformat(lease_expires_at):
+    if not lease_expires_at or now >= _parse_iso_utc(lease_expires_at, "lease_expires_at"):
         raise LeaseError("lease trust window has lapsed")
 
     license_expires_at = payload.get("license_expires_at")
-    if license_expires_at and now >= datetime.fromisoformat(license_expires_at):
+    if license_expires_at and now >= _parse_iso_utc(license_expires_at, "license_expires_at"):
         raise LeaseError("license has expired")
 
     return payload

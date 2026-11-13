@@ -45,7 +45,8 @@ optional.
 ## Trials
 
 ```python
-result = client.start_trial()       # get-or-create a 7-day trial; idempotent —
+result = client.start_trial()       # get-or-create a free trial (7 days by default, or the
+                                     # 14/30 you set per product); idempotent —
                                      # reinstalling never resets the clock
 if result.status == "active":
     print(f"{result.days_left} days left")
@@ -63,6 +64,19 @@ last known value) rather than silently trusting the local clock. Falls back
 to `status="network_error"` only if there's no cached snapshot yet either
 (e.g. the very first check happens offline).
 
+The trial's length is a setting on your product (7, 14 or 30 days, chosen in
+the SublimeKeys dashboard or via the API) — it is not something the SDK or the
+app can change, so users can't give themselves a longer trial.
+
+## Time-limited licenses
+
+A key can carry an expiry date (issue it with `duration_days` or `expires_at`
+and renew the same key later with `extend_days` — see the docs). `verify()`
+returns it as `result.expires_at`. The expiry is part of the signed lease, so
+it is enforced **offline too**: the moment the date passes, an offline machine
+stops accepting the license — no waiting for the 7-day window. After a renewal,
+the next online `verify()` picks up the new date automatically.
+
 ## How offline verification works
 
 When `activate()` or `verify()` succeeds, the server returns a lease — a
@@ -73,9 +87,11 @@ checks the signature against a **pinned public key built into this package**
 
 The lease itself expires after 7 days (server-controlled). Once it does, the
 next `verify()` call transparently goes online, gets a fresh lease, and the
-cycle repeats. This means a revoked or expired license can take up to 7 days
-to be caught while a machine stays fully offline — an intentional tradeoff
-for instant, network-independent checks the rest of the time, not a bug.
+cycle repeats. This means a **revoked** license can take up to 7 days to be
+caught while a machine stays fully offline — an intentional tradeoff for
+instant, network-independent checks the rest of the time, not a bug. (A
+time-limited license that simply *expired* is different: its expiry date is
+inside the lease, so it is rejected offline as soon as the date passes.)
 
 ## API
 

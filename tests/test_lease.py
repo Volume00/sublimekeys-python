@@ -75,6 +75,35 @@ def test_rejects_expired_license(keypair, lease_factory):
                       expected_machine_id="test-machine", expected_product_id="test-product")
 
 
+def _verify(token, pub):
+    return verify_lease(token, pub, expected_license_key="TEST-KEY",
+                         expected_machine_id="test-machine", expected_product_id="test-product")
+
+
+@pytest.mark.parametrize("expiry", ["2099-01-01", "2099-01-01T23:59:59", "2099-01-01T23:59:59Z"])
+def test_accepts_future_expiry_without_timezone(keypair, lease_factory, expiry):
+    # A date-only / naive expiry used to raise TypeError ("can't compare
+    # offset-naive and offset-aware datetimes"). It is read as UTC now.
+    _, pub = keypair
+    payload = _verify(lease_factory(license_expires_at=expiry), pub)
+    assert payload["license_expires_at"] == expiry
+
+
+@pytest.mark.parametrize("expiry", ["2000-01-01", "2000-01-01T00:00:00"])
+def test_rejects_past_expiry_without_timezone(keypair, lease_factory, expiry):
+    _, pub = keypair
+    with pytest.raises(LeaseError, match="expired"):
+        _verify(lease_factory(license_expires_at=expiry), pub)
+
+
+def test_malformed_expiry_is_a_lease_error_not_a_crash(keypair, lease_factory):
+    # A garbage value must fail closed with LeaseError (which verify() turns
+    # into "go online"), never an unhandled ValueError/TypeError in the app.
+    _, pub = keypair
+    with pytest.raises(LeaseError, match="malformed"):
+        _verify(lease_factory(license_expires_at="next year"), pub)
+
+
 @pytest.mark.parametrize("field,expected", [
     ("expected_license_key", "WRONG-KEY"),
     ("expected_machine_id", "wrong-machine"),
