@@ -8,9 +8,20 @@ on:
 jobs:
   test:
     strategy:
+      # One broken combination must not cancel the other 14 and hide the real
+      # result (that is exactly what happened on 2026-11-13, see below).
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        exclude:
+          # ubuntu-latest is Ubuntu 26.04 now, which has no Python 3.9 build
+          # (3.9 is end-of-life). Keep testing 3.9 where it still exists.
+          - os: ubuntu-latest
+            python-version: "3.9"
+        include:
+          - os: ubuntu-22.04
+            python-version: "3.9"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
